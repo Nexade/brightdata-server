@@ -16,7 +16,7 @@ const BRIGHT_DATA_API_KEY = process.env.BRIGHT_DATA_API_KEY;
 if (!BRIGHT_DATA_API_KEY) console.log('Bright Data API key is missing');
 
 const DISCOVER_API_URL = 'https://api.brightdata.com/datasets/v3/trigger?dataset_id=gd_m8ebnr0q2qlklc02fz&include_errors=true&type=discover_new&discover_by=location';
-const REVIEWS_API_URL = 'https://api.brightdata.com/datasets/v3/trigger?dataset_id=gd_luzfs1dn2oa0teb81&include_errors=true&limit_multiple_results=30';
+const REVIEWS_API_URL = 'https://api.brightdata.com/datasets/v3/trigger?dataset_id=gd_luzfs1dn2oa0teb81&include_errors=true&limit_multiple_results=';
 
 // Store active requests
 const activeRequests = new Map();
@@ -27,7 +27,7 @@ function isGoogleMapsUrl(input) {
 }
 
 // Polling function to check dataset status
-async function pollDatasetResult(requestId, datasetId) {
+async function pollDatasetResult(requestId) {
   const statusUrl = `https://api.brightdata.com/datasets/v3/request/${requestId}/status`;
   const resultUrl = `https://api.brightdata.com/datasets/v3/request/${requestId}/result`;
   
@@ -66,7 +66,8 @@ async function pollDatasetResult(requestId, datasetId) {
 router.post('/get-reviews', async (req, res) => {
 
   try {
-    const { input } = req.body;
+    const { input, reviewsMax } = req.body;
+
     
     if (!input) return res.status(400).json({ error: "Input is required" });
 
@@ -75,7 +76,7 @@ router.post('/get-reviews', async (req, res) => {
     activeRequests.set(requestId, { status: 'processing' });
 
     // Process request in background
-    processRequest(requestId, input);
+    processRequest(requestId, input, reviewsMax);
     
     return res.json({ 
       message: "Request processing started", 
@@ -103,7 +104,7 @@ router.get('/request-status/:requestId', async (req, res) => {
 });
 
 // Background processing function
-async function processRequest(requestId, input) {
+async function processRequest(requestId, input, reviewsMax) {
   try {
     let businessUrl;
     
@@ -120,7 +121,7 @@ async function processRequest(requestId, input) {
       console.log(discoverResponse);
       if (!requestId) throw new Error('No request ID returned from discovery');
       
-      const discoverResult = await pollDatasetResult(requestId, 'gd_m8ebnr0q2qlklc02fz');
+      const discoverResult = await pollDatasetResult(requestId); // datasetId was previously 'gd_m8ebnr0q2qlklc02fz' then I deleted it
       const results = discoverResult?.[0]?.data?.results;
       if (!results?.length) throw new Error('No businesses found');
       
@@ -134,7 +135,7 @@ async function processRequest(requestId, input) {
   };
 
   // Step 1: Trigger the dataset collection
-  const triggerResponse = await axios.post(REVIEWS_API_URL, 
+  const triggerResponse = await axios.post((REVIEWS_API_URL+reviewsMax), 
     JSON.stringify([reviewData]),
     {
       headers: {
@@ -155,7 +156,7 @@ async function processRequest(requestId, input) {
   const resultUrl = `https://api.brightdata.com/datasets/v3/snapshot/${snapshotId}`;
   let resultData = null;
 
-  for (let attempt = 0; attempt < 20; attempt++) { // try up to ~10 minutes
+  for (let attempt = 0; attempt < 40; attempt++) { // try up to 20 minutes
     await new Promise(resolve => setTimeout(resolve, 30000)); // wait 30s between polls
 
     const resultResponse = await axios.get(resultUrl, {
